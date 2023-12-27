@@ -1,53 +1,53 @@
 {
-    "Comment": "Amazon state language definition",
-    "StartAt": "InitState",
-    "States": {
-      "InitState": {
-        "Type": "Pass",
-        "Next": "step"
-      },
-      "step":{
-        "Type": "Map",
-        "ItemsPath": "$",
-          "Iterator": {
-            "StartAt": "Convert String to Json",
-            "States": {
-              "Convert String to Json": {
-                "Type": "Pass",
-                "Parameters": {
-                  "Result.$": "States.StringToJson($.body)"
-                },
-                "ResultPath":"$.data",
-                "Next": "Save Item"
-              },
-              "Save Item":{
-                "Type": "Task",
-                "Resource": "arn:aws:states:::dynamodb:putItem",
-                "Parameters": {
-                  "TableName": "well-arch-table",
-                  "Item": {
-                    "id": {
-                      "S.$": "States.UUID()"
-                    },
-                    "product_id": {
-                      "S.$": "$.data.Result.product_id"
-                    },
-                    "loacation": {
-                      "S.$": "$.data.Result.location"
-                    },
-                    "quantity": {
-                      "S.$": "$.data.Result.quantity"
-                    },
-                    "update_date": {
-                      "S.$": "$.data.Result.update_date"
-                    }
-                  }
-                },
-                "End": true
-              }
-            }
+  "Comment": "Amazon state language definition",
+  "StartAt": "InitState",
+  "States": {
+    "InitState": {
+      "Type": "Pass",
+      "Next": "ConsumeSqsMessage"
+    },
+    "ConsumeSqsMessage": {
+      "Type": "Map",
+      "ItemsPath": "$",
+      "Iterator": {
+        "StartAt": "ConvertStringToJson",
+        "States": {
+          "ConvertStringToJson": {
+            "Type": "Pass",
+            "Parameters": {
+              "Result.$": "States.StringToJson($.body)"
+            },
+            "ResultPath": "$.data",
+            "Next": "SaveItem"
           },
-        "End": true
-      }
+          "SaveItem": {
+            "Type": "Task",
+            "Resource": "arn:aws:states:::dynamodb:putItem",
+            "Parameters": {
+              "TableName": "well-arch-table",
+              "Item": {
+                "id": {
+                  "S.$": "States.UUID()"
+                },
+                "product_id": {
+                  "S.$": "$.data.Result.product_id"
+                },
+                "loacation": {
+                  "S.$": "$.data.Result.location"
+                },
+                "quantity": {
+                  "S.$": "$.data.Result.quantity"
+                },
+                "update_date": {
+                  "S.$": "$.data.Result.update_date"
+                }
+              }
+            },
+            "End": true
+          }
+        }
+      },
+      "End": true
     }
   }
+}

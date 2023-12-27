@@ -17,11 +17,11 @@ from aws_cdk import (
     aws_dynamodb as dynamodb,
     Tags,
     aws_logs as logs,
+    aws_pipes as pipes,
+    aws_apigateway as _apigw
 )
 from constructs import Construct
 from aws_cdk.aws_lambda import Function, Tracing
-from aws_cdk import aws_apigateway as _apigw
-import aws_cdk.aws_pipes as pipes
 
 class WellArchitectStack(Stack):
 
@@ -56,6 +56,7 @@ class WellArchitectStack(Stack):
             self, "InventoryUpdatesQueue",
             visibility_timeout=Duration.seconds(300),
             encryption=sqs.QueueEncryption.KMS_MANAGED,
+            removal_policy=RemovalPolicy.DESTROY,
             dead_letter_queue=sqs.DeadLetterQueue(
                 max_receive_count=2,  # Number of retries before sending the message to the DLQ
                 queue=dlq
@@ -74,10 +75,10 @@ class WellArchitectStack(Stack):
         Tags.of(queue).add("department", "inventory")
 
         # Allow the Lambda function to receive messages from the SQS queue
-        role.add_to_policy(iam.PolicyStatement(
-            actions=["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
-            resources=[queue.queue_arn]
-        ))
+        # role.add_to_policy(iam.PolicyStatement(
+        #     actions=["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
+        #     resources=[queue.queue_arn]
+        # ))
 
         # Create the DynamoDB table
         table = dynamodb.Table(self, 'InventoryUpdates',
@@ -144,7 +145,7 @@ class WellArchitectStack(Stack):
         csv_processing_to_sqs_function  = _lambda.Function(self, 'CSVProcessingToSQSFunction',
                                    runtime=_lambda.Runtime.PYTHON_3_8,
                                    code=_lambda.Code.from_asset('well_architect/lambda'),
-                                   handler='CSVProcessingToSQSFunction.lambda_handler',
+                                   handler='csv_processing_to_sqs_function.lambda_handler',
                                    role=role,
                                    tracing=Tracing.ACTIVE,
                                    timeout=Duration.seconds(300),
@@ -237,7 +238,7 @@ class WellArchitectStack(Stack):
                 resources=[queue.queue_arn],
                 effect=iam.Effect.ALLOW,
         )
-
+              
         target_policy = iam.PolicyStatement(
                 actions=['states:StartExecution'],
                 resources=[sfn_target.state_machine_arn],
@@ -249,8 +250,9 @@ class WellArchitectStack(Stack):
 
         pipe_role.add_to_policy(source_policy)
         pipe_role.add_to_policy(target_policy)
-
-        cfn_pipe = pipes.CfnPipe(self, "MyCfnPipe",
+        
+    # Polls messages from sqs
+        cfn_pipe = pipes.CfnPipe(self, "InventoryUpdateCfnPipe",
             role_arn=pipe_role.role_arn,
             source=queue.queue_arn,
             target=sfn_target.state_machine_arn,

@@ -3,8 +3,10 @@ import boto3
 import csv
 import os
 
+
 def lambda_handler(event, context):
 
+    # metrics.add_metric(name="SuccessfulBooking", unit=MetricUnit.Count, value=1)
     print(event)
     # Retrieve the S3 bucket and object key from the SQS message
     
@@ -20,7 +22,7 @@ def lambda_handler(event, context):
 
     # Initialize the SQS client
     sqs_client = boto3.client('sqs')
-    queue_url = os.environ['SQS_QUEUE_URL']
+    queue_url = os.environ['QUEUE_URL']
 
     # Parse the CSV records and send them to SQS as batch messages
     csv_reader = csv.DictReader(csv_content.splitlines())
@@ -42,7 +44,6 @@ def lambda_handler(event, context):
                 Entries=message_batch
             )
             message_batch = []
-            print('Sent messages in batch')
 
     # Send any remaining messages in the batch
     if message_batch:
