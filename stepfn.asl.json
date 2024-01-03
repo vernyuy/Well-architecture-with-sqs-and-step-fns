@@ -24,22 +24,43 @@
             "Type": "Task",
             "Resource": "arn:aws:states:::dynamodb:putItem",
             "Parameters": {
-              "TableName": "well-arch-table",
+              "TableName": "InventoryUpdates",
               "Item": {
+                "PK": {
+                  "S.$": "States.Format('WAREHOUSE#{}', $.data.Result.warehouseId)"
+                },
+                "SK": {
+                  "S.$": "States.Format('PRODUCT#{}', $.data.Result.productId)"
+                },
+                "productName": {
+                  "S.$": "$.data.Result.productName"
+                },
+                "productDescription": {
+                  "S.$": "$.data.Result.productDescription"
+                },
+                "productPrice": {
+                  "N.$": "$.data.Result.productPrice"
+                },
                 "id": {
-                  "S.$": "States.UUID()"
+                  "S.$": "$.data.Result.productId"
                 },
-                "product_id": {
-                  "S.$": "$.data.Result.product_id"
+                "categoryName": {
+                  "S.$": "$.data.Result.categoryName"
                 },
-                "loacation": {
-                  "S.$": "$.data.Result.location"
+                "productQuantity": {
+                  "S.$": "$.data.Result.productQuantity"
                 },
-                "quantity": {
-                  "S.$": "$.data.Result.quantity"
+                "createdOn": {
+                  "S.$": "$.data.Result.createdOn"
                 },
-                "update_date": {
-                  "S.$": "$.data.Result.update_date"
+                "productImage":{
+                  "S.$": "$.data.Result.productImages"
+                },
+                "GSI1_PK": {
+                  "S": "PRODUCT"
+                },
+                "GSI1_SK": {
+                  "S.$": "States.Format('PRODUCT#{}', $.data.Result.productId)"
                 }
               }
             },
