@@ -35,7 +35,6 @@ class WellArchitectStack(Stack):
             role_name="InventoryFunctionRole",
             description="Role for Lambda functions"
         )
-
         Tags.of(role).add("department", "inventory")
 
         # Allow the Lambda function to write to CloudWatch Logs
@@ -48,7 +47,6 @@ class WellArchitectStack(Stack):
         dlq = sqs.Queue(self, 'InventoryUpdatesDlq',
             visibility_timeout=Duration.seconds(300)
         )
-
         Tags.of(dlq).add("department", "inventory")
 
         # Create the SQS queue with DLQ setting
@@ -71,14 +69,7 @@ class WellArchitectStack(Stack):
             conditions={"ArnEquals": {"aws:SourceArn": queue.queue_arn}},
         )
         queue.queue_policy = iam.PolicyDocument(statements=[policy])
-
         Tags.of(queue).add("department", "inventory")
-
-        # Allow the Lambda function to receive messages from the SQS queue
-        # role.add_to_policy(iam.PolicyStatement(
-        #     actions=["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"],
-        #     resources=[queue.queue_arn]
-        # ))
 
         # Create the DynamoDB table
         table = dynamodb.Table(self, 'InventoryUpdates',
@@ -101,8 +92,6 @@ class WellArchitectStack(Stack):
             partition_key=dynamodb.Attribute(name='GSI2_PK', type=dynamodb.AttributeType.STRING),
             sort_key=dynamodb.Attribute(name='GSI2_SK', type=dynamodb.AttributeType.STRING)
         )
-            
-
         Tags.of(table).add("department", "inventory")
 
         #create input S3 bucket
@@ -111,8 +100,6 @@ class WellArchitectStack(Stack):
             versioned=True,
             removal_policy=RemovalPolicy.DESTROY,
         )
-        bucket_arn = bucket.bucket_arn
-
         Tags.of(bucket).add("department", "inventory")
 
         # Create rest api
@@ -120,22 +107,15 @@ class WellArchitectStack(Stack):
             rest_api_name="inventory API",
             description="This service serves files.",
             default_cors_preflight_options=apigw.CorsOptions(
-                allow_origins=apigw.Cors.ALL_ORIGINS,
-                allow_methods=apigw.Cors.ALL_METHODS
-            )
-            # defaultCorsPreflightOptions: {
-            #     allowHeaders: [
-            #     'Content-Type',
-            #     'X-Amz-Date',
-            #     'Authorization',
-            #     'X-Api-Key',
-            #     ],
-            #     allowMethods: ['OPTIONS', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-            #     allowCredentials: true,
-            #     allowOrigins: ['http://localhost:3000'],
-            # },
+                allow_origins=['http://localhost:3000'],
+                allow_methods=apigw.Cors.ALL_METHODS,
+                max_age=Duration.days(10),
+                expose_headers=["Content-Type"],
+                status_code=200
+            )                                     
         )
-
+        Tags.of(inventory_api).add("department", "inventory")
+        
         bucket_resource = inventory_api.root.add_resource("{bucketName}")
         item_resource = bucket_resource.add_resource("{item}")
 
@@ -147,7 +127,6 @@ class WellArchitectStack(Stack):
             )
         }
         api_role = iam.Role(self, "APIGRole", assumed_by=iam.ServicePrincipal("apigateway.amazonaws.com"), inline_policies=policy)
-
 
         integration_response = apigw.IntegrationResponse(status_code="200")
         integration_options = apigw.IntegrationOptions(
@@ -161,7 +140,7 @@ class WellArchitectStack(Stack):
               
         bucket_integration = apigw.AwsIntegration(service="s3", integration_http_method="PUT", path="{bucket}/{object}", region="eu-west-2", options=integration_options)
 
-        post_to_bucket_method = item_resource.add_method("PUT", integration=bucket_integration, 
+        item_resource.add_method("PUT", integration=bucket_integration, 
           request_parameters={
             "method.request.path.bucketName": True,
             "method.request.path.item": True
@@ -190,8 +169,6 @@ class WellArchitectStack(Stack):
                 'QUEUE_URL': queue.queue_url,
             }
         )
-
-        # Add tags to the Lambda function
         Tags.of(csv_processing_to_sqs_function ).add("department", "inventory")
 
         # Grant the Lambda function read permissions to the S3 bucket
@@ -217,7 +194,6 @@ class WellArchitectStack(Stack):
 
         # Create an SNS topic for alarms
         topic = sns.Topic(self, 'InventoryUpdatesTopic')
-
         Tags.of(topic).add("department", "inventory")
 
         # Create a CloudWatch alarm for ApproximateAgeOfOldestMessage metric
@@ -229,7 +205,6 @@ class WellArchitectStack(Stack):
             comparison_operator=cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD
         )
         alarm.add_alarm_action(cloudwatch_actions.SnsAction(topic))
-
         Tags.of(alarm).add("department", "inventory")
 
         # Define the queue policy to allow messages from the Lambda function's role only
@@ -243,7 +218,7 @@ class WellArchitectStack(Stack):
         queue.add_to_resource_policy(policy)
 
         # Create an IAM policy statement allowing only HTTPS access to the queue
-        secure_transport_policy = iam.PolicyStatement(
+        iam.PolicyStatement(
             effect=iam.Effect.DENY,
             actions=["sqs:*"],
             resources=[queue.queue_arn],
@@ -255,7 +230,7 @@ class WellArchitectStack(Stack):
         )
         
         sfn_consume_sqs_message = sfn.StateMachine(self, "state-machine",
-            definition_body=sfn.DefinitionBody.from_file("./stepfn.asl.json"),
+            definition_body=sfn.DefinitionBody.from_file("./product_statemachine.asl.json"),
             state_machine_type = sfn.StateMachineType.EXPRESS,
             state_machine_name = "InventoryStateMachine",
             logs = sfn.LogOptions(
@@ -264,10 +239,9 @@ class WellArchitectStack(Stack):
                 include_execution_data=True
             )
         )    
-
+        table.grant_write_data(sfn_consume_sqs_message)
         Tags.of(sfn_consume_sqs_message).add("department", "inventory")
 
-        table.grant_write_data(sfn_consume_sqs_message)
         # creating pipe
         source_policy = iam.PolicyStatement(
                 actions=['sqs:ReceiveMessage', 'sqs:DeleteMessage', 'sqs:GetQueueAttributes'],
@@ -287,7 +261,7 @@ class WellArchitectStack(Stack):
         pipe_role.add_to_policy(source_policy)
         pipe_role.add_to_policy(target_policy)
         
-    # Polls messages from sqs
+    # Define event bridge pipeline with sqs queue as source and step function as target
         cfn_pipe = pipes.CfnPipe(self, "InventoryUpdateCfnPipe",
             role_arn=pipe_role.role_arn,
             source=queue.queue_arn,
@@ -303,167 +277,99 @@ class WellArchitectStack(Stack):
                 )
             )
         )
-
         Tags.of(cfn_pipe).add("department", "inventory")
         
-        # state_machine_for_ddb_operations = sfn.StateMachine(self, "state-machine-ddb",
-        #     definition_body=sfn.DefinitionBody.from_file("./statemachin.asl.json"),
-        #     state_machine_type = sfn.StateMachineType.EXPRESS,
-        #     state_machine_name = "InventoryStateMachineDDB",
-        #     logs = sfn.LogOptions(
-        #         destination=logs.LogGroup(self, "state-machine-logs-ddb"),
-        #         level=sfn.LogLevel.ALL,
-        #         include_execution_data=True
-        #     )
-        # )  
+        crud_stepfn = sfn.StateMachine(self, "crud-state-machine",
+            definition_body=sfn.DefinitionBody.from_file("./crud_stepfn.asl.json"),
+            state_machine_type = sfn.StateMachineType.EXPRESS,
+            state_machine_name = "InventoryCrudStateMachine",
+            logs = sfn.LogOptions(
+                destination=logs.LogGroup(self, "state-machine-logs_inventory_updates"),
+                level=sfn.LogLevel.ALL,
+                include_execution_data=True
+            )
+        )  
+        Tags.of(crud_stepfn).add("department", "inventory")
+        table.grant_read_write_data(crud_stepfn)
         
-        
-       
-        # Define lambda function
-        list_products_fn = _lambda.Function(self, "LambdaFunction",
-                                            runtime=_lambda.Runtime.PYTHON_3_8,
-                                            code=_lambda.Code.from_asset("well_architect/lambda"),
-                                            handler="list_products.lambda_handler",
-                                            role=role,
-                                            tracing=Tracing.ACTIVE,
-                                            timeout=Duration.seconds(300),
-                                            memory_size=1024,
-                                            layers=[pwoertools_layer],
-                                            environment={
-                                                'TABLE_NAME': table.table_name
-                                            }
-                                            )
-        
-        # Define lambda function
-        create_product_fn = _lambda.Function(self, "CreateProductLambdaFunction",
-                                            runtime=_lambda.Runtime.PYTHON_3_8,
-                                            code=_lambda.Code.from_asset("well_architect/lambda"),
-                                            handler="create_product.lambda_handler",
-                                            role=role,
-                                            tracing=Tracing.ACTIVE,
-                                            timeout=Duration.seconds(300),
-                                            memory_size=1024,
-                                            layers=[pwoertools_layer],
-                                            environment={
-                                                'TABLE_NAME': table.table_name
-                                            }
-                                            )
-           
-        
-        list_warehouses_fn = _lambda.Function(self, "ListWarehouseLambdaFunction",
-                                            runtime=_lambda.Runtime.PYTHON_3_8,
-                                            code=_lambda.Code.from_asset("well_architect/lambda"),
-                                            handler="list_warehouses.lambda_handler",
-                                            role=role,
-                                            tracing=Tracing.ACTIVE,
-                                            timeout=Duration.seconds(300),
-                                            memory_size=1024,
-                                            layers=[pwoertools_layer],
-                                            environment={
-                                                'TABLE_NAME': table.table_name
-                                            }
-                                            )
-        
-        get_warehouse_fn = _lambda.Function(self, "GetWarehouseLambdaFunction",
-                                            runtime=_lambda.Runtime.PYTHON_3_8,
-                                            code=_lambda.Code.from_asset("well_architect/lambda"),
-                                            handler="get_warehouse.lambda_handler",
-                                            role=role,
-                                            tracing=Tracing.ACTIVE,
-                                            timeout=Duration.seconds(300),
-                                            memory_size=1024,
-                                            layers=[pwoertools_layer],
-                                            environment={
-                                                'TABLE_NAME': table.table_name
-                                            }
-                                            )
-        
-        get_product_fn = _lambda.Function(self, "GetProductLambdaFunction",
-                                            runtime=_lambda.Runtime.PYTHON_3_8,
-                                            code=_lambda.Code.from_asset("well_architect/lambda"),
-                                            handler="get_product.lambda_handler",
-                                            role=role,
-                                            tracing=Tracing.ACTIVE,
-                                            timeout=Duration.seconds(300),
-                                            memory_size=1024,
-                                            layers=[pwoertools_layer],
-                                            environment={
-                                                'TABLE_NAME': table.table_name
-                                            }
-                                        )
-        
-        create_warehouse_fn = _lambda.Function(self, "CreateWarehouseLambdaFunction",
-                                            runtime=_lambda.Runtime.PYTHON_3_8,
-                                            code=_lambda.Code.from_asset("well_architect/lambda"),
-                                            handler="create_warehouse.lambda_handler",
-                                            role=role,
-                                            tracing=Tracing.ACTIVE,
-                                            timeout=Duration.seconds(300),
-                                            memory_size=1024,
-                                            layers=[pwoertools_layer],
-                                            environment={
-                                                'TABLE_NAME': table.table_name
-                                            }
-                                            )
-           
-        
-        
-        table.grant_read_data(list_products_fn)
-        table.grant_read_data(list_warehouses_fn)
-        table.grant_read_data( get_warehouse_fn)
-        table.grant_read_data(get_product_fn)
-        table.grant_write_data(create_product_fn)
-        table.grant_write_data(create_warehouse_fn)
         # API Gateway endpoint to list products
         products = inventory_api.root.add_resource("products")
         product = inventory_api.root.add_resource("product")
         warehouse = inventory_api.root.add_resource("warehouse")
         warehouses = inventory_api.root.add_resource("warehouses")
-        get_warehouse = warehouses.add_resource("{warehouse_id}")
+        get_warehouse = warehouse.add_resource("{warehouse_id}")
+        get_product = product.add_resource("{product_id}")
+        
         products.add_method(
             "GET",
-            apigw.LambdaIntegration(
-                handler=list_products_fn
+            apigw.StepFunctionsIntegration.start_execution(
+                state_machine=crud_stepfn,
+                passthrough_behavior= apigw.PassthroughBehavior.WHEN_NO_MATCH,
+                request_context={
+                    "http_method": True,
+                    "resource_path": True,
+                }
             )
         )
         
         warehouse.add_method(
             "POST",
-            apigw.LambdaIntegration(
-                handler=create_product_fn,
+            apigw.StepFunctionsIntegration.start_execution(
+                state_machine=crud_stepfn,
+                passthrough_behavior= apigw.PassthroughBehavior.WHEN_NO_MATCH,
+                request_context={
+                    "http_method": True,
+                    "resource_path": True
+                }
             )
         )
         
         product.add_method(
             "POST",
-            apigw.LambdaIntegration(
-                handler=create_product_fn,
+            apigw.StepFunctionsIntegration.start_execution(
+                state_machine=crud_stepfn,
+                passthrough_behavior= apigw.PassthroughBehavior.WHEN_NO_MATCH,
+                request_context={
+                    "http_method": True,
+                    "resource_path": True
+                }
             )
         )
+        
         warehouses.add_method(
             "GET",
-            apigw.LambdaIntegration(
-                handler=list_warehouses_fn
+            apigw.StepFunctionsIntegration.start_execution(
+                state_machine=crud_stepfn,
+                passthrough_behavior= apigw.PassthroughBehavior.WHEN_NO_MATCH,
+                request_context={
+                    "http_method": True,
+                    "resource_path": True
+                }
             )
         )
         
         get_warehouse.add_method(
             "GET",
-            apigw.LambdaIntegration(
-                handler=get_warehouse_fn
+            apigw.StepFunctionsIntegration.start_execution(
+                state_machine=crud_stepfn,
+                passthrough_behavior= apigw.PassthroughBehavior.WHEN_NO_MATCH,
+                request_context={
+                    "http_method": True,
+                    "resource_path": True,
+                }
             )
         )
-        # Create weather item
-        # products.add_method(
-        # "GET",
-        # apigw.StepFunctionsIntegration.start_execution(state_machine_for_ddb_operations, 
-        #                                                path=True,
-                                                       
-        # passthrough_behavior= apigw.PassthroughBehavior.WHEN_NO_MATCH,
-        # request_context={
-        #     "http_method": True
-        # }
-        #                                                ),
-        # )
+        
+        get_product.add_method(
+            "GET",
+            apigw.StepFunctionsIntegration.start_execution(
+                state_machine=crud_stepfn,
+                passthrough_behavior= apigw.PassthroughBehavior.WHEN_NO_MATCH,
+                request_context={
+                    "http_method": True,
+                    "resource_path": True,
+                }
+            )
+        )
         #Output
         CfnOutput(self, "S3 Bucket Name", value=bucket.bucket_name)

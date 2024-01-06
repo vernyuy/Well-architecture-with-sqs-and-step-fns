@@ -1,188 +1,288 @@
 {
-    "Comment": "Amazon state language definition",
-    "StartAt": "InitState",
-    "States": {
-      "InitState": {
-        "Type": "Pass",
-        "Next": "Request Method"
-      },
-      "Request Method": {
-        "Type" : "Choice",
-        "Choices": [
-          {
-            "Variable": "$.requestContext.httpMethod",
-            "StringEquals": "POST",
-            "Next": "Create Weather Item"
-          },
-          {
-            "Variable": "$.requestContext.httpMethod",
-            "StringEquals": "PUT",
-            "Next": "Update Weather Item"
-          },
-          {
-            "Variable": "$.requestContext.httpMethod",
-            "StringEquals": "DELETE",
-            "Next": "Delete Weather Item"
-          },
-          {
-            "Variable": "$.requestContext.httpMethod",
-            "StringEquals": "GET",
-            "Next": "Get Weather Item"
-          }
-        ]
-      },
-      "Create Weather Item": {
-        "Type": "Task",
-        "Resource": "arn:aws:states:::dynamodb:putItem",
-        "Parameters": {
-          "TableName": "weather-table",
-          "Item": {
-            "id": {
-              "S.$": "$.body.id"
+  "Comment": "Amazon state language definition",
+  "StartAt": "InitState",
+  "States": {
+    "InitState": {
+      "Type": "Pass",
+      "Next": "Request Method"
+    },
+    "Request Method": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.requestContext.httpMethod",
+              "StringEquals": "GET"
             },
-            "city": {
-              "S.$": "$.body.city"
-            },
-            "weather": {
-              "S.$": "$.body.weather"
+            {
+              "Variable": "$.requestContext.resourcePath",
+              "StringEquals": "/warehouses"
             }
-          }
-        },
-        "Retry": [
-          {
-            "ErrorEquals": [
-              "States.All"
-            ],
-            "IntervalSeconds": 1,
-            "MaxAttempts": 1
-          }
-        ],
-        "Catch": [{
-  
-          "ErrorEquals": [
-            "States.All"
           ],
-          "Next": "Create Failed"
-        }],
-        "ResultPath": "$.dynamodbPut",
-        "Next": "Create Success"
-      },
-      "Get Weather Item": {
-        "Type": "Task",
-        "Resource": "arn:aws:states:::dynamodb:getItem",
-        "Parameters": {
-          "TableName": "weather-table",
-          "Key": {
-            "id": {
-              "S.$": "$.path.weatherId"
-            }
-          }
+          "Next": "ListWarehouses"
         },
-        "Retry": [
-          {
-            "ErrorEquals": ["States.All"],
-            "IntervalSeconds": 1,
-            "MaxAttempts": 2
-          }
-        ],
-        "Catch": [{
-          "ErrorEquals": ["States.All"],
-          "Next": "Get Failed"
-        }],
-        "Next": "Get Success"
-      },
-  
-      "Update Weather Item": {
-        "Type": "Task",
-        "Resource": "arn:aws:states:::dynamodb:updateItem",
-        "Parameters": {
-          "TableName": "weather-table",
-          "Key": {
-            "id": {
-              "S.$": "$.path.weatherId"
+        {
+          "And": [
+            {
+              "Variable": "$.requestContext.httpMethod",
+              "StringEquals": "GET"
+            },
+            {
+              "Variable": "$.requestContext.resourcePath",
+              "StringEquals": "/products"
             }
+          ],
+          "Next": "ListProducts"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.requestContext.httpMethod",
+              "StringEquals": "GET"
+            },
+            {
+              "Variable": "$.requestContext.resourcePath",
+              "StringEquals": "/product/{product_id}"
+            }
+          ],
+          "Next": "GetProduct"
+        },
+        {
+          "And": [
+            {
+              "Variable": "$.requestContext.httpMethod",
+              "StringEquals": "GET"
+            },
+            {
+              "Variable": "$.requestContext.resourcePath",
+              "StringEquals": "/warehouse/{warehouse_id}"
+            }
+          ],
+          "Next": "GetWarehouse"
+        },
+        {
+          "Variable": "$.requestContext.httpMethod",
+          "StringEquals": "POST",
+          "Next": "GenerateId"
+        }
+      ]
+    },
+    "ListWarehouses": {
+      "Type": "Task",
+      "Parameters": {
+        "TableName": "InventoryUpdates",
+        "KeyConditionExpression": "PK = :pk AND begins_with(SK, :sk)",
+        "ExpressionAttributeValues": {
+          ":pk": {
+            "S": "WAREHOUSE"
           },
-          "UpdateExpression": "set city = :city",
-          "ExpressionAttributeValues": {
-            ":city": {
-              "S.$": "$.body.city"
-            }
+          ":sk": {
+            "S": "WAREHOUSE#"
+          }
+        }
+      },
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:query",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.All"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 1
+        }
+      ],
+      "ResultPath": "$.warehouses",
+      "End": true
+    },
+    "ListProducts": {
+      "Type": "Task",
+      "Parameters": {
+        "TableName": "InventoryUpdates",
+        "IndexName": "product-index",
+        "KeyConditionExpression": "GSI1_PK = :gsi1_pk AND begins_with(GSI1_SK, :gsi1_sk)",
+        "ExpressionAttributeValues": {
+          ":gsi1_pk": {
+            "S": "PRODUCT"
           },
-          "ReturnValues": "UPDATED_NEW"
-        },
-        "Retry": [
-          {
-            "ErrorEquals": ["States.All"],
-            "IntervalSeconds": 1,
-            "MaxAttempts": 2
+          ":gsi1_sk": {
+            "S": "PRODUCT#"
           }
-        ],
-        "Catch": [{
+        }
+      },
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:query",
+      "Retry": [
+        {
           "ErrorEquals": ["States.All"],
-          "Next": "Update Failed"
-        }],
-        "Next": "Update Success"
+          "IntervalSeconds": 1,
+          "MaxAttempts": 1
+        }
+      ],
+      "ResultPath": "$.products",
+      "End": true
+    },
+    "GetProduct": {
+      "Type": "Task",
+      "Parameters": {
+        "TableName": "InventoryUpdates",
+        "IndexName": "product-index",
+        "KeyConditionExpression": "GSI1_PK = :gsi1_pk AND begins_with(GSI1_SK, :gsi1_sk)",
+        "ExpressionAttributeValues": {
+          ":gsi1_pk": {
+            "S": "PRODUCT"
+          },
+          ":gsi1_sk": {
+            "S.$": "States.Format('PRODUCT#{}', $.path.product_id)"
+          }
+        }
       },
-  
-      "Delete Weather Item": {
-        "Type": "Task",
-        "Resource": "arn:aws:states:::dynamodb:deleteItem",
-        "Parameters": {
-          "TableName": "weather-table",
-          "Key": {
-            "id": {
-              "S.$": "$.path.weatherId"
-            }
-          }
-        },
-        "Retry": [
-          {
-            "ErrorEquals": ["States.All"],
-            "IntervalSeconds": 1,
-            "MaxAttempts": 2
-          }
-        ],
-        "Catch": [{
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:query",
+      "Retry": [
+        {
           "ErrorEquals": ["States.All"],
-          "Next": "Delete Failed"
-        }],
-        "Next": "Delete Success"
+          "IntervalSeconds": 1,
+          "MaxAttempts": 1
+        }
+      ],
+      "ResultPath": "$.product",
+      "End": true
+    },
+    "GetWarehouse": {
+      "Type": "Task",
+      "Parameters": {
+        "TableName": "InventoryUpdates",
+        "KeyConditionExpression": "PK = :pk AND begins_with(SK, :sk)",
+        "ExpressionAttributeValues": {
+          ":pk": {
+            "S": "WAREHOUSE"
+          },
+          ":sk": {
+            "S.$": "States.Format('WAREHOUSE#{}', $.path.warehouse_id)"
+          }
+        }
       },
-      "Create Failed":{
-        "Type": "Fail",
-        "Error": "Item Create Fail",
-        "Cause": "Dynamodb error"
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:query",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.All"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 1
+        }
+      ],
+      "ResultPath": "$.warehouse",
+      "End": true
+    },
+    "GenerateId": {
+      "Type": "Pass",
+      "Parameters": {
+        "id.$": "States.UUID()"
       },
-      "Create Success":{
-        "Type": "Pass",
-        "End": true
+      "ResultPath": "$.key",
+      "Next": "CreateChoice"
+    },
+
+    "CreateChoice":{
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.requestContext.resourcePath",
+          "StringEquals": "/product",
+          "Next": "CreateProduct"
+        },
+        {
+          "Variable": "$.requestContext.resourcePath",
+          "StringEquals": "/warehouse",
+          "Next": "CreateWarehouse"
+        }
+      ]
+    },
+    "CreateWarehouse": {
+      "Type": "Task",
+      "Parameters": {
+        "TableName": "InventoryUpdates",
+        "Item": {
+          "PK": {
+            "S": "WAREHOUSE"
+          },
+          "SK": {
+            "S.$": "States.Format('WAREHOUSE#{}', $.key.id)"
+          },
+          "warehouseName": {
+            "S.$": "$.body.warehouseName"
+          },
+          "warehouseDescription": {
+            "S.$": "$.body.warehouseDescription"
+          },
+          "id": {
+            "S.$": "$.key.id"
+          },
+          "createdOn": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
       },
-      "Get Success":{
-        "Type": "Pass",
-        "End": true
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:putItem",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.All"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 1
+        }
+      ],
+      "ResultPath": "$.products",
+      "End": true
+    },
+    "CreateProduct": {
+      "Type": "Task",
+      "Parameters": {
+        "TableName": "InventoryUpdates",
+        "Item": {
+          "PK": {
+            "S.$": "States.Format('WAREHOUSE#{}', $.body.warehouseId)"
+          },
+          "SK": {
+            "S.$": "States.Format('PRODUCT#{}', $.key.id)"
+          },
+          "productName": {
+            "S.$": "$.body.productName"
+          },
+          "productDescription": {
+            "S.$": "$.body.productDescription"
+          },
+          "productPrice": {
+            "N.$": "$.body.productPrice"
+          },
+          "id": {
+            "S.$": "$.key.id"
+          },
+          "categoryName": {
+            "S.$": "$.body.categoryName"
+          },
+          "productQuantity": {
+            "N.$": "$.body.productQuantity"
+          },
+          "createdOn": {
+            "S.$": "$$.State.EnteredTime"
+          },
+          "productImage": {
+            "S.$": "$.body.productImage"
+          },
+          "GSI1_PK": {
+            "S": "PRODUCT"
+          },
+          "GSI1_SK": {
+            "S.$": "States.Format('PRODUCT#{}', $.key.id)"
+          }
+        }
       },
-      "Get Failed":{
-        "Type": "Fail",
-        "Error": "Item Create Fail",
-        "Cause": "Dynamodb error"
-      },
-      "Delete Success":{
-        "Type": "Pass",
-        "End": true
-      },
-      "Delete Failed":{
-        "Type": "Fail",
-        "Error": "Item Delete Fail",
-        "Cause": "Dynamodb error"
-      },
-      "Update Success":{
-        "Type": "Pass",
-        "End": true
-      },
-      "Update Failed":{
-        "Type": "Fail",
-        "Error": "Item Update Fail",
-        "Cause": "Dynamodb error"
-      }
+      "Resource": "arn:aws:states:::aws-sdk:dynamodb:putItem",
+      "Retry": [
+        {
+          "ErrorEquals": ["States.All"],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 1
+        }
+      ],
+      "ResultPath": "$.products",
+      "End": true
     }
   }
+}
